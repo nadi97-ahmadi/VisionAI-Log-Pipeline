@@ -1,17 +1,5 @@
-# requirements.txt
-# Install with:
-#   pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cpu
-
-openai-whisper
-ultralytics
-opencv-python
-pymupdf
-torch
-torchvision
-torchaudio
-openai-whisper
-opencv-python
-pymupdf
---extra-index-url https://download.pytorch.org/whl/cpu
 streamlit>=1.35.0
+ultralytics
+openai-whisper
+pymupdf
 opencv-python-headless
