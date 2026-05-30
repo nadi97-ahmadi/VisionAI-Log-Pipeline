@@ -1,0 +1,9 @@
+Copyright (c) 2026 Nadira Ahmadi. All rights reserved.
+
+This software and its documentation are proprietary and confidential portfolio work. 
+No part of this source code, media assets, or architecture may be copied, reproduced, 
+distributed, or modified in any form or by any means without the prior written 
+permission of the copyright holder.
+
+For permission requests or inquiries regarding commercial applications, please 
+contact the author directly via GitHub.

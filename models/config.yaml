@@ -1,0 +1,20 @@
+# models/config.yaml
+# VisionLog inference configuration
+# Edit these values to tune speed vs accuracy on your machine.
+
+whisper:
+  model_size: tiny      # tiny | base | small   (larger = more accurate but slower on CPU)
+  device: cpu
+  fp16: false           # must be false on CPU — do not change
+
+yolo:
+  model: yolov8n.pt     # nano = fastest on CPU; swap to yolov8s.pt for better accuracy
+  confidence: 0.40      # 0.0–1.0  lower = more detections, more false positives
+  skip_frames: 10       # process every Nth frame (10 = fast, 3 = thorough)
+  max_captures: 5       # max annotated frame images saved to disk
+
+report:
+  project_name: VisionLog
+  output_dir: output/
+  filename: VisionLog_Report.pdf
+  page_size: A4
