@@ -2,4 +2,3 @@ streamlit>=1.35.0
 ultralytics
 openai-whisper
 pymupdf
-opencv-python-headless
