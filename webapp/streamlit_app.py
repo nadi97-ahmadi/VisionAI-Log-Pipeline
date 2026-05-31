@@ -3,14 +3,22 @@
 #
 # Run with:
 #   streamlit run webapp/streamlit_app.py
-    
+
+import sys
+import os
+from pathlib import Path
+
+# ── fix path FIRST before any src imports ─────────────────────────────────────
+root = str(Path(__file__).parent.parent.resolve())
+if root not in sys.path:
+    sys.path.insert(0, root)
+
 import streamlit as st
 import tempfile
 import base64
-import time
-import os
-import sys
-from pathlib import Path
+import datetime
+from src.pipeline import InspectionPipeline
+from src.report_generator import ReportGenerator
 
 # ── must be first streamlit call ──────────────────────────────────────────────
 st.set_page_config(
@@ -20,94 +28,44 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── import pipeline (lives in src/) ──────────────────────────────────────────
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from src.pipeline import InspectionPipeline
-from src.report_generator import ReportGenerator
-
 # ── custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-  /* Hide default streamlit header/footer */
   #MainMenu, footer, header { visibility: hidden; }
+  .stApp { background-color: #fafbfc !important; }
+  .stApp, .stApp p, .stMarkdown p { color: #111827 !important; font-size: 1rem; line-height: 1.6; }
+  .stApp h1, .stApp h2, .stApp h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { color: #0f2d59 !important; font-weight: 700 !important; }
+  .stApp label, .stApp .stSlider, .stSelectbox, .stTab { color: #111827 !important; font-weight: 600 !important; }
+  [data-testid="stMetricLabel"] { color: #0f2d59 !important; font-weight: 700 !important; }
+  [data-testid="stMetricValue"] { color: #111827 !important; font-weight: 800 !important; }
+  .streamlit-expanderHeader { color: #111827 !important; font-weight: 700 !important; }
+  .stAlert div, .stAlert p { color: #1f2937 !important; font-weight: 600 !important; }
 
-  /* Clear layout background */
-  .stApp { 
-    background-color: #fafbfc !important; 
-  }
-
-  /* --- FIXING GENERAL TEXT READABILITY --- */
-  /* Force all standard body text and markdown to be a crisp charcoal black */
-  .stApp, .stApp p, .stMarkdown p {
-    color: #111827 !important;
-    font-size: 1rem;
-    line-height: 1.6;
-  }
-
-  /* Force all standard headers to be deep dark blue */
-  .stApp h1, .stApp h2, .stApp h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
-    color: #0f2d59 !important;
-    font-weight: 700 !important;
-  }
-
-  /* Explicitly make Streamlit widget labels dark and visible */
-  .stApp label, .stApp .stSlider, .stSelectbox, .stTab {
-    color: #111827 !important;
-    font-weight: 600 !important;
-  }
-
-  /* --- BANNER OVERRIDES --- */
   .vl-header {
     background: linear-gradient(135deg, #0a62b5 0%, #0f2d59 100%);
     border-radius: 16px;
     padding: 32px 40px;
     margin-bottom: 24px;
-    box-shadow: 0 4px 12px rgba(15, 45, 89, 0.15);
+    box-shadow: 0 4px 12px rgba(15,45,89,0.15);
   }
   .vl-header h1 { font-size: 2.4rem; font-weight: 800; margin: 0; letter-spacing: -1px; color: #ffffff !important; }
-  .vl-header p  { font-size: 1.05rem; opacity: 0.95; margin: 6px 0 0; color: #f0f4ff !important; }
+  .vl-header p  { font-size: 1.05rem; margin: 6px 0 0; color: #f0f4ff !important; }
 
-  /* --- INDUSTRIAL CARDS LAYOUT --- */
   .vl-card {
     background-color: #ffffff !important;
     border-radius: 14px;
     padding: 24px 28px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
     margin-bottom: 20px;
     border: 1px solid #e5e7eb;
   }
-  .vl-card h3 { 
-    font-size: 1.1rem; 
-    font-weight: 700; 
-    color: #0a62b5 !important; 
-    margin: 0 0 16px; 
-    text-transform: uppercase; 
-    letter-spacing: 0.5px; 
-  }
-  /* Ensure text inside cards is explicitly dark gray/black */
-  .vl-card p, .vl-card span, .vl-card div { 
-    color: #111827 !important; 
-  }
+  .vl-card h3 { font-size: 1.1rem; font-weight: 700; color: #0a62b5 !important; margin: 0 0 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .vl-card p, .vl-card span, .vl-card div { color: #111827 !important; }
 
-  /* --- STREAMLIT NATIVE COMPONENTS PROTECTION --- */
-  /* Keep file uploader text readable */
-  .stFileUploader section div {
-    color: #4b5563 !important;
-  }
-  
-  /* Keep warnings, info boxes, and alerts perfectly clear */
-  .stAlert div, .stAlert p {
-    color: #1f2937 !important;
-    font-weight: 600 !important;
-  }
-
-  /* --- BADGES & RECOVERY INTERFACE ELEMENTS --- */
   .badge-green { background-color: #d1fae5 !important; color: #065f46 !important; padding: 6px 14px; border-radius: 20px; font-size: 0.85rem; font-weight: 700; display: inline-block; }
   .badge-blue  { background-color: #dbeafe !important; color: #1e40af !important; padding: 6px 14px; border-radius: 20px; font-size: 0.85rem; font-weight: 700; display: inline-block; }
   .badge-red   { background-color: #fee2e2 !important; color: #991b1b !important; padding: 6px 14px; border-radius: 20px; font-size: 0.85rem; font-weight: 700; display: inline-block; }
 
-  /* Transcript Display block styles */
   .transcript-box {
     background-color: #f8fafc !important;
     border-left: 4px solid #0a62b5;
@@ -123,15 +81,14 @@ st.markdown("""
     border-bottom: 1px solid #e5e7eb;
   }
 
-  /* Tables formatting rules */
   .det-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 10px; }
   .det-table th { background-color: #f1f5f9 !important; color: #0f2d59 !important; padding: 12px; text-align: left; font-weight: 700; border-bottom: 2px solid #0a62b5; }
   .det-table td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; color: #111827 !important; font-weight: 500; }
+  .det-table tr:hover td { background-color: #f8fafc; }
   .conf-high { color: #dc2626 !important; font-weight: 700 !important; }
   .conf-mid  { color: #d97706 !important; font-weight: 700 !important; }
   .conf-low  { color: #059669 !important; font-weight: 700 !important; }
 
-  /* Share Link Display block text tracking */
   .share-box {
     background-color: #f1f5f9 !important;
     border: 1.5px dashed #0a62b5;
@@ -144,7 +101,6 @@ st.markdown("""
     margin-top: 12px;
   }
 
-  /* Download Button Styling override */
   .dl-btn {
     display: inline-block;
     background-color: #0a62b5;
@@ -160,17 +116,18 @@ st.markdown("""
   }
   .dl-btn:hover { background-color: #0f2d59; }
 
-  /* Divider line structure */
   .vl-divider { border: none; border-top: 2px solid #e5e7eb; margin: 16px 0 24px; }
 
-  /* Progress Stepper Tracking elements UI */
   .progress-row { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
   .progress-step { flex: 1; padding: 12px; border-radius: 8px; text-align: center; font-size: 0.85rem; font-weight: 700; }
   .step-done    { background-color: #d1fae5 !important; color: #065f46 !important; border: 1px solid #a7f3d0; }
   .step-active  { background-color: #0a62b5 !important; color: #ffffff !important; }
   .step-waiting { background-color: #f3f4f6 !important; color: #9ca3af !important; border: 1px solid #e5e7eb; }
+
+  .stFileUploader section div { color: #4b5563 !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -193,10 +150,6 @@ def conf_class(conf: float) -> str:
     if conf >= 0.70: return "conf-high"
     if conf >= 0.50: return "conf-mid"
     return "conf-low"
-
-@st.cache_resource(show_spinner=False)
-def load_pipeline():
-    return InspectionPipeline(confidence_threshold=0.35)
 
 def save_upload(uploaded_file, suffix: str) -> str:
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
@@ -225,17 +178,14 @@ st.markdown("""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# INPUT SECTION — two columns
+# INPUT SECTION
 # ══════════════════════════════════════════════════════════════════════════════
 col1, col2 = st.columns(2, gap="large")
 
-# ── VIDEO column ──────────────────────────────────────────────────────────────
 with col1:
     st.markdown('<div class="vl-card">', unsafe_allow_html=True)
     st.markdown('<h3>📹 Inspection Video</h3>', unsafe_allow_html=True)
-
     video_tab1, video_tab2 = st.tabs(["📁 Upload video", "🎥 Record from camera"])
-
     with video_tab1:
         uploaded_video = st.file_uploader(
             "Drop your video here",
@@ -246,22 +196,17 @@ with col1:
         if uploaded_video:
             st.video(uploaded_video)
             st.markdown('<span class="badge-green">✓ Video ready</span>', unsafe_allow_html=True)
-
     with video_tab2:
-        st.info("📱 **Tip:** Use your phone camera for best results — then upload via the Upload tab above.\n\nOr use the recorder below (browser webcam):")
-        recorded_video = st.camera_input("📷 Take a photo / record", key="cam_video")
+        st.info("📱 Use your phone camera for best results — upload via the Upload tab above.\n\nOr capture directly below:")
+        recorded_video = st.camera_input("📷 Capture", key="cam_video")
         if recorded_video:
             st.markdown('<span class="badge-green">✓ Camera capture ready</span>', unsafe_allow_html=True)
-
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ── AUDIO column ──────────────────────────────────────────────────────────────
 with col2:
     st.markdown('<div class="vl-card">', unsafe_allow_html=True)
     st.markdown('<h3>🎙️ Technician Voice Note</h3>', unsafe_allow_html=True)
-
     audio_tab1, audio_tab2 = st.tabs(["📁 Upload audio", "🎤 Record voice note"])
-
     with audio_tab1:
         uploaded_audio = st.file_uploader(
             "Drop your audio here",
@@ -272,32 +217,30 @@ with col2:
         if uploaded_audio:
             st.audio(uploaded_audio)
             st.markdown('<span class="badge-green">✓ Audio ready</span>', unsafe_allow_html=True)
-
     with audio_tab2:
         st.info("🎙️ Click the mic button below to record your voice note directly in the browser:")
         recorded_audio = st.audio_input("🎤 Record voice note", key="mic_audio")
         if recorded_audio:
             st.audio(recorded_audio)
             st.markdown('<span class="badge-green">✓ Voice note recorded</span>', unsafe_allow_html=True)
-
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-# ── SETTINGS row ──────────────────────────────────────────────────────────────
+# ── SETTINGS ──────────────────────────────────────────────────────────────────
 with st.expander("⚙️ Advanced settings"):
     conf_threshold = st.slider(
         "Detection confidence threshold",
         min_value=0.10,
         max_value=0.90,
-        value=0.35,
+        value=0.20,
         step=0.05,
-        help="Lower = detects more objects. Higher = only highly confident detections.",
+        help="Lower = detects more. Higher = only very confident detections.",
     )
     whisper_size = st.selectbox(
         "Whisper model size",
         ["tiny", "base", "small"],
         index=0,
-        help="Tiny is fastest. Base is more accurate. Small is best but slowest on CPU.",
+        help="Tiny is fastest. Base is more accurate. Small is best but slowest.",
     )
 
 
@@ -308,7 +251,6 @@ st.markdown("<hr class='vl-divider'>", unsafe_allow_html=True)
 
 final_video = uploaded_video or recorded_video
 final_audio = uploaded_audio or recorded_audio
-
 ready = final_video is not None and final_audio is not None
 
 if not ready:
@@ -372,7 +314,6 @@ if run_btn and ready:
         update_progress(2, "Scanning video frames with YOLOv8...")
         video_data = pipeline.analyze_video(video_tmp)
 
-        import datetime
         results = {
             "timestamp":  datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "video_path": final_video.name if hasattr(final_video, "name") else "recorded_video",
@@ -385,8 +326,8 @@ if run_btn and ready:
         generator = ReportGenerator()
         generator.build(results, output_path=pdf_out)
 
-        st.session_state.results   = results
-        st.session_state.pdf_path  = pdf_out
+        st.session_state.results         = results
+        st.session_state.pdf_path        = pdf_out
         st.session_state.processing_done = True
 
         progress_placeholder.empty()
@@ -403,7 +344,7 @@ if run_btn and ready:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RESULTS SECTION
+# RESULTS
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.processing_done and st.session_state.results:
     results    = st.session_state.results
@@ -416,10 +357,10 @@ if st.session_state.processing_done and st.session_state.results:
     st.markdown("## 📋 Inspection Report")
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Duration",      f"{video_data['duration_sec']} s")
+    m1.metric("Duration",       f"{video_data['duration_sec']} s")
     m2.metric("Frames scanned", video_data["total_frames"])
-    m3.metric("Detections",    len(detections))
-    m4.metric("Language",      audio_data["language"].upper())
+    m3.metric("Detections",     len(detections))
+    m4.metric("Language",       audio_data["language"].upper())
 
     left, right = st.columns([1, 1], gap="large")
 
@@ -428,13 +369,13 @@ if st.session_state.processing_done and st.session_state.results:
         st.markdown('<h3>🎙️ Audio Transcript</h3>', unsafe_allow_html=True)
         transcript = audio_data["full_text"] or "_No speech detected._"
         st.markdown(f'<div class="transcript-box">{transcript}</div>', unsafe_allow_html=True)
-
         if audio_data["segments"]:
             st.markdown("<p style='font-weight:700;color:#0d3f75;'>Timestamped segments:</p>", unsafe_allow_html=True)
             for seg in audio_data["segments"][:8]:
                 st.markdown(
-                    f'<div style="margin-bottom:6px;"><span style="color:#0a62b5;font-weight:700;margin-right:8px;">'
-                    f'[{seg["start"]}s – {seg["end"]}s]</span><span style="color:#1a2030;font-weight:600;">{seg["text"]}</span></div>',
+                    f'<div style="margin-bottom:6px;">'
+                    f'<span style="color:#0a62b5;font-weight:700;margin-right:8px;">[{seg["start"]}s – {seg["end"]}s]</span>'
+                    f'<span style="color:#111827;font-weight:500;">{seg["text"]}</span></div>',
                     unsafe_allow_html=True,
                 )
         st.markdown('</div>', unsafe_allow_html=True)
@@ -442,12 +383,12 @@ if st.session_state.processing_done and st.session_state.results:
         st.markdown('<div class="vl-card">', unsafe_allow_html=True)
         st.markdown('<h3>🤖 AI Vision Detections</h3>', unsafe_allow_html=True)
         if not detections:
-            st.markdown("_No objects detected above threshold._")
+            st.markdown("<p style='color:#6b7280;'>No objects detected above threshold.</p>", unsafe_allow_html=True)
         else:
             rows = ""
             for d in detections[:12]:
-                pct  = f"{d['confidence']*100:.1f}%"
-                cls  = conf_class(d["confidence"])
+                pct = f"{d['confidence']*100:.1f}%"
+                cls = conf_class(d["confidence"])
                 rows += (
                     f"<tr>"
                     f"<td>{d['timestamp_sec']}s</td>"
@@ -457,13 +398,9 @@ if st.session_state.processing_done and st.session_state.results:
                     f"</tr>"
                 )
             st.markdown(
-                f"""<table class="det-table">
-                  <thead><tr>
-                    <th>Time</th><th>Frame</th>
-                    <th>Object Class</th><th>Confidence</th>
-                  </tr></thead>
-                  <tbody>{rows}</tbody>
-                </table>""",
+                f'<table class="det-table"><thead><tr>'
+                f'<th>Time</th><th>Frame</th><th>Object Class</th><th>Confidence</th>'
+                f'</tr></thead><tbody>{rows}</tbody></table>',
                 unsafe_allow_html=True,
             )
         st.markdown('</div>', unsafe_allow_html=True)
@@ -478,12 +415,11 @@ if st.session_state.processing_done and st.session_state.results:
                 if Path(fp).exists():
                     cols[i % 2].image(fp, use_container_width=True)
         else:
-            st.markdown("_No frames captured._")
+            st.markdown("<p style='color:#6b7280;'>No frames captured.</p>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="vl-card">', unsafe_allow_html=True)
     st.markdown('<h3>📥 Download & Share Report</h3>', unsafe_allow_html=True)
-
     dl_col, share_col = st.columns([1, 2])
 
     with dl_col:
@@ -503,7 +439,7 @@ if st.session_state.processing_done and st.session_state.results:
         share_link = make_share_link(pdf_path)
         st.markdown(f'<div class="share-box">{share_link[:120]}...</div>', unsafe_allow_html=True)
         st.code(share_link, language=None)
-        
+
     st.markdown('</div>', unsafe_allow_html=True)
 
     with st.expander("👁️ Preview PDF inline"):
