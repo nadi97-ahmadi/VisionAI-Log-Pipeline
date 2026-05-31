@@ -4,13 +4,16 @@
 #   streamlit run webapp/streamlit_app.py
 import sys
 import os
-sys.path.insert(0, '/mount/src/visionai-log-pipeline')
+from pathlib import Path
 
-# DEBUG — remove after fixing
+# Make the repo root importable regardless of deploy/mount name
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import streamlit as st
 import tempfile
 import base64
 import datetime
+
 try:
     from src.pipeline import InspectionPipeline
     from src.report_generator import ReportGenerator
