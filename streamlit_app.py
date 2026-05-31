@@ -1,0 +1,297 @@
+# streamlit_app.py  ← ROOT of repo
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import streamlit as st
+import tempfile
+import base64
+import datetime
+from pathlib import Path
+from src.pipeline import InspectionPipeline
+from src.report_generator import ReportGenerator
+
+st.set_page_config(
+    page_title="VisionLog AI",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+st.markdown("""
+<style>
+  #MainMenu, footer, header { visibility: hidden; }
+  .stApp { background-color: #fafbfc !important; }
+  .stApp, .stApp p, .stMarkdown p { color: #111827 !important; font-size: 1rem; line-height: 1.6; }
+  .stApp h1, .stApp h2, .stApp h3 { color: #0f2d59 !important; font-weight: 700 !important; }
+  .stApp label { color: #111827 !important; font-weight: 600 !important; }
+  [data-testid="stMetricLabel"] { color: #0f2d59 !important; font-weight: 700 !important; }
+  [data-testid="stMetricValue"] { color: #111827 !important; font-weight: 800 !important; }
+  .stAlert div, .stAlert p { color: #1f2937 !important; font-weight: 600 !important; }
+  .vl-header { background: linear-gradient(135deg, #0a62b5 0%, #0f2d59 100%); border-radius: 16px; padding: 32px 40px; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(15,45,89,0.15); }
+  .vl-header h1 { font-size: 2.4rem; font-weight: 800; margin: 0; color: #ffffff !important; }
+  .vl-header p  { font-size: 1.05rem; margin: 6px 0 0; color: #f0f4ff !important; }
+  .vl-card { background-color: #ffffff !important; border-radius: 14px; padding: 24px 28px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid #e5e7eb; }
+  .vl-card h3 { font-size: 1.1rem; font-weight: 700; color: #0a62b5 !important; margin: 0 0 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .badge-green { background-color: #d1fae5 !important; color: #065f46 !important; padding: 6px 14px; border-radius: 20px; font-size: 0.85rem; font-weight: 700; display: inline-block; }
+  .transcript-box { background-color: #f8fafc !important; border-left: 4px solid #0a62b5; border-radius: 0 10px 10px 0; padding: 16px 20px; font-size: 1rem; line-height: 1.7; color: #111827 !important; margin: 8px 0 16px; font-weight: 500 !important; border: 1px solid #e5e7eb; border-left: 4px solid #0a62b5; }
+  .det-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 10px; }
+  .det-table th { background-color: #f1f5f9 !important; color: #0f2d59 !important; padding: 12px; text-align: left; font-weight: 700; border-bottom: 2px solid #0a62b5; }
+  .det-table td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; color: #111827 !important; font-weight: 500; }
+  .conf-high { color: #dc2626 !important; font-weight: 700 !important; }
+  .conf-mid  { color: #d97706 !important; font-weight: 700 !important; }
+  .conf-low  { color: #059669 !important; font-weight: 700 !important; }
+  .share-box { background-color: #f1f5f9 !important; border: 1.5px dashed #0a62b5; border-radius: 10px; padding: 14px 18px; font-family: monospace; font-size: 0.88rem; color: #0f2d59 !important; word-break: break-all; margin-top: 12px; }
+  .dl-btn { display: inline-block; background-color: #0a62b5; color: #ffffff !important; text-decoration: none !important; padding: 12px 28px; border-radius: 10px; font-weight: 700; font-size: 1rem; margin-top: 8px; }
+  .vl-divider { border: none; border-top: 2px solid #e5e7eb; margin: 16px 0 24px; }
+  .progress-row { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
+  .progress-step { flex: 1; padding: 12px; border-radius: 8px; text-align: center; font-size: 0.85rem; font-weight: 700; }
+  .step-done    { background-color: #d1fae5 !important; color: #065f46 !important; }
+  .step-active  { background-color: #0a62b5 !important; color: #ffffff !important; }
+  .step-waiting { background-color: #f3f4f6 !important; color: #9ca3af !important; }
+</style>
+""", unsafe_allow_html=True)
+
+
+def pdf_to_base64(pdf_path):
+    with open(pdf_path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+def make_download_link(pdf_path, label="⬇️ Download PDF Report"):
+    b64 = pdf_to_base64(pdf_path)
+    return f'<a class="dl-btn" href="data:application/pdf;base64,{b64}" download="VisionLog_Report.pdf">{label}</a>'
+
+def make_share_link(pdf_path):
+    return f"data:application/pdf;base64,{pdf_to_base64(pdf_path)}"
+
+def conf_class(conf):
+    if conf >= 0.70: return "conf-high"
+    if conf >= 0.50: return "conf-mid"
+    return "conf-low"
+
+def save_upload(uploaded_file, suffix):
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(uploaded_file.read())
+    tmp.flush()
+    return tmp.name
+
+
+for key in ["results", "pdf_path", "processing_done"]:
+    if key not in st.session_state:
+        st.session_state[key] = None
+if "processing_done" not in st.session_state:
+    st.session_state.processing_done = False
+
+
+st.markdown("""
+<div class="vl-header">
+  <h1>🔍 VisionLog AI</h1>
+  <p>Upload or record your inspection video & voice note — get an AI-generated PDF report instantly.</p>
+</div>
+""", unsafe_allow_html=True)
+
+
+col1, col2 = st.columns(2, gap="large")
+
+with col1:
+    st.markdown('<div class="vl-card">', unsafe_allow_html=True)
+    st.markdown('<h3>📹 Inspection Video</h3>', unsafe_allow_html=True)
+    video_tab1, video_tab2 = st.tabs(["📁 Upload video", "🎥 Record from camera"])
+    with video_tab1:
+        uploaded_video = st.file_uploader("Drop your video here", type=["mp4","mov","avi","mkv","webm"], key="video_upload", label_visibility="collapsed")
+        if uploaded_video:
+            st.video(uploaded_video)
+            st.markdown('<span class="badge-green">✓ Video ready</span>', unsafe_allow_html=True)
+    with video_tab2:
+        st.info("📱 Use your phone for best results — upload via Upload tab. Or capture below:")
+        recorded_video = st.camera_input("📷 Capture", key="cam_video")
+        if recorded_video:
+            st.markdown('<span class="badge-green">✓ Capture ready</span>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with col2:
+    st.markdown('<div class="vl-card">', unsafe_allow_html=True)
+    st.markdown('<h3>🎙️ Technician Voice Note</h3>', unsafe_allow_html=True)
+    audio_tab1, audio_tab2 = st.tabs(["📁 Upload audio", "🎤 Record voice note"])
+    with audio_tab1:
+        uploaded_audio = st.file_uploader("Drop your audio here", type=["wav","mp3","m4a","ogg","flac","mp4"], key="audio_upload", label_visibility="collapsed")
+        if uploaded_audio:
+            st.audio(uploaded_audio)
+            st.markdown('<span class="badge-green">✓ Audio ready</span>', unsafe_allow_html=True)
+    with audio_tab2:
+        st.info("🎙️ Record directly in browser:")
+        recorded_audio = st.audio_input("🎤 Record", key="mic_audio")
+        if recorded_audio:
+            st.audio(recorded_audio)
+            st.markdown('<span class="badge-green">✓ Recorded</span>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+with st.expander("⚙️ Advanced settings"):
+    conf_threshold = st.slider("Detection confidence threshold", 0.10, 0.90, 0.20, 0.05)
+    whisper_size   = st.selectbox("Whisper model size", ["tiny","base","small"], index=0)
+
+st.markdown("<hr class='vl-divider'>", unsafe_allow_html=True)
+
+final_video = uploaded_video or recorded_video
+final_audio = uploaded_audio or recorded_audio
+ready = final_video is not None and final_audio is not None
+
+if not ready:
+    missing = []
+    if final_video is None: missing.append("video")
+    if final_audio is None: missing.append("audio")
+    st.warning(f"⚠️ Please provide: **{' and '.join(missing)}** to generate the report.")
+
+run_btn = st.button("🚀 Generate Inspection Report", disabled=not ready, use_container_width=True, type="primary")
+
+
+if run_btn and ready:
+    st.session_state.processing_done = False
+    st.session_state.results = None
+    st.session_state.pdf_path = None
+
+    video_suffix = "." + (final_video.name.split(".")[-1] if hasattr(final_video, "name") else "mp4")
+    audio_suffix = "." + (final_audio.name.split(".")[-1] if hasattr(final_audio, "name") else "wav")
+    video_tmp = save_upload(final_video, video_suffix)
+    audio_tmp = save_upload(final_audio, audio_suffix)
+
+    Path("output").mkdir(exist_ok=True)
+    pdf_out = "output/VisionLog_Report.pdf"
+
+    progress_placeholder = st.empty()
+    status_placeholder   = st.empty()
+
+    def update_progress(step, label):
+        steps = ["Loading models", "Transcribing audio", "Analysing video", "Building PDF"]
+        html  = '<div class="progress-row">'
+        for i, s in enumerate(steps):
+            if i < step:   html += f'<div class="progress-step step-done">✓ {s}</div>'
+            elif i == step: html += f'<div class="progress-step step-active">⏳ {s}</div>'
+            else:           html += f'<div class="progress-step step-waiting">{s}</div>'
+        html += "</div>"
+        progress_placeholder.markdown(html, unsafe_allow_html=True)
+        status_placeholder.info(f"**{label}**")
+
+    try:
+        update_progress(0, "Loading Whisper + YOLOv8 models...")
+        pipeline = InspectionPipeline(confidence_threshold=conf_threshold)
+        pipeline._load_whisper()
+        pipeline._load_yolo()
+
+        update_progress(1, "Transcribing voice note...")
+        audio_data = pipeline.transcribe_audio(audio_tmp)
+
+        update_progress(2, "Scanning video frames...")
+        video_data = pipeline.analyze_video(video_tmp)
+
+        results = {
+            "timestamp":  datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "video_path": getattr(final_video, "name", "recorded_video"),
+            "audio_path": getattr(final_audio, "name", "recorded_audio"),
+            "audio":      audio_data,
+            "video":      video_data,
+        }
+
+        update_progress(3, "Compiling PDF...")
+        ReportGenerator().build(results, output_path=pdf_out)
+
+        st.session_state.results         = results
+        st.session_state.pdf_path        = pdf_out
+        st.session_state.processing_done = True
+        progress_placeholder.empty()
+        status_placeholder.success("✅ Report generated successfully!")
+
+    except Exception as e:
+        progress_placeholder.empty()
+        status_placeholder.error(f"❌ Error: {e}")
+        st.exception(e)
+    finally:
+        for f in [video_tmp, audio_tmp]:
+            try: os.unlink(f)
+            except: pass
+
+
+if st.session_state.processing_done and st.session_state.results:
+    results    = st.session_state.results
+    pdf_path   = st.session_state.pdf_path
+    audio_data = results["audio"]
+    video_data = results["video"]
+    detections = video_data["detections"]
+
+    st.markdown("---")
+    st.markdown("## 📋 Inspection Report")
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Duration",       f"{video_data['duration_sec']} s")
+    m2.metric("Frames scanned", video_data["total_frames"])
+    m3.metric("Detections",     len(detections))
+    m4.metric("Language",       audio_data["language"].upper())
+
+    left, right = st.columns([1, 1], gap="large")
+
+    with left:
+        st.markdown('<div class="vl-card">', unsafe_allow_html=True)
+        st.markdown('<h3>🎙️ Audio Transcript</h3>', unsafe_allow_html=True)
+        transcript = audio_data["full_text"] or "_No speech detected._"
+        st.markdown(f'<div class="transcript-box">{transcript}</div>', unsafe_allow_html=True)
+        if audio_data["segments"]:
+            st.markdown("<p style='font-weight:700;color:#0d3f75;'>Timestamped segments:</p>", unsafe_allow_html=True)
+            for seg in audio_data["segments"][:8]:
+                st.markdown(
+                    f'<div style="margin-bottom:6px;">'
+                    f'<span style="color:#0a62b5;font-weight:700;margin-right:8px;">[{seg["start"]}s – {seg["end"]}s]</span>'
+                    f'<span style="color:#111827;font-weight:500;">{seg["text"]}</span></div>',
+                    unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="vl-card">', unsafe_allow_html=True)
+        st.markdown('<h3>🤖 AI Vision Detections</h3>', unsafe_allow_html=True)
+        if not detections:
+            st.markdown("<p style='color:#6b7280;'>No objects detected above threshold.</p>", unsafe_allow_html=True)
+        else:
+            rows = ""
+            for d in detections[:12]:
+                pct = f"{d['confidence']*100:.1f}%"
+                cls = conf_class(d["confidence"])
+                rows += f"<tr><td>{d['timestamp_sec']}s</td><td>{d['frame']}</td><td>{d['class'].replace('_',' ').title()}</td><td class='{cls}'>{pct}</td></tr>"
+            st.markdown(f'<table class="det-table"><thead><tr><th>Time</th><th>Frame</th><th>Object Class</th><th>Confidence</th></tr></thead><tbody>{rows}</tbody></table>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with right:
+        st.markdown('<div class="vl-card">', unsafe_allow_html=True)
+        st.markdown('<h3>🖼️ Annotated Frames</h3>', unsafe_allow_html=True)
+        saved = video_data.get("saved_frames", [])
+        if saved:
+            cols = st.columns(2)
+            for i, fp in enumerate(saved[:4]):
+                if Path(fp).exists():
+                    cols[i % 2].image(fp, use_container_width=True)
+        else:
+            st.markdown("<p style='color:#6b7280;'>No frames captured.</p>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="vl-card">', unsafe_allow_html=True)
+    st.markdown('<h3>📥 Download & Share Report</h3>', unsafe_allow_html=True)
+    dl_col, share_col = st.columns([1, 2])
+    with dl_col:
+        with open(pdf_path, "rb") as f:
+            st.download_button("⬇️ Download PDF Report", f, "VisionLog_Report.pdf", "application/pdf", use_container_width=True, type="primary")
+        st.markdown(make_download_link(pdf_path, "📄 Open PDF in browser"), unsafe_allow_html=True)
+    with share_col:
+        st.markdown("<p style='font-weight:700;color:#0d3f75;'>🔗 Shareable link:</p>", unsafe_allow_html=True)
+        share_link = make_share_link(pdf_path)
+        st.markdown(f'<div class="share-box">{share_link[:120]}...</div>', unsafe_allow_html=True)
+        st.code(share_link, language=None)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    with st.expander("👁️ Preview PDF inline"):
+        b64 = pdf_to_base64(pdf_path)
+        st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="700px" style="border-radius:10px;border:none;"></iframe>', unsafe_allow_html=True)
+
+    if st.button("🔄 Start new inspection", use_container_width=True):
+        for key in ["results", "pdf_path", "processing_done"]:
+            st.session_state[key] = None
+        st.rerun()
+
+st.markdown('<br><br><div style="text-align:center;color:#7f8c8d;font-size:0.85rem;font-weight:700;padding-bottom:20px">VisionLog AI — Built with Whisper + YOLOv8 + Streamlit &nbsp;|&nbsp; CPU-only · No GPU required</div>', unsafe_allow_html=True)
