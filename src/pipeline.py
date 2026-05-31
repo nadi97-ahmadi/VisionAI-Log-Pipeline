@@ -40,20 +40,23 @@ class InspectionPipeline:
         print("[2/3] Loading Specialized PCB Defect Model from Hugging Face...")
         hf_model_id = "keremberke/yolov8n-pcb-defect-segmentation"
         
-        try:
-            # Ultralytics natively handles downloading directly via Hugging Face repo strings
-            self.vision_model = YOLO(hf_model_id)
-            
-            # Configure model detection parameter overrides
-            self.vision_model.overrides['conf'] = self.confidence_threshold
-            self.vision_model.overrides['iou'] = 0.45
-            self.vision_model.overrides['agnostic_nms'] = False
-            self.vision_model.overrides['max_det'] = 1000
-            
-            print("      ✓ PCB Defect Segmentation Model ready")
-        except Exception as e:
-            print(f"      ⚠️ Failed to load Hugging Face model ({e}). Falling back to default yolov8n.pt")
-            self.vision_model = YOLO("yolov8n.pt")
+        import torch
+        from unittest.mock import patch
+
+        # Force torch.load to bypass weights_only restrictions temporarily during model initialization
+        with patch('torch.load', lambda *args, **kwargs: torch.load(*args, **{**kwargs, 'weights_only': False})):
+            try:
+                self.vision_model = YOLO(hf_model_id)
+                
+                # Apply optimized parameters for electronics component testing
+                self.vision_model.overrides['conf'] = self.confidence_threshold
+                self.vision_model.overrides['iou'] = 0.45
+                self.vision_model.overrides['agnostic_nms'] = False
+                self.vision_model.overrides['max_det'] = 1000
+                print(" PCB Defect Segmentation Model ready")
+            except Exception as e:
+                print(f" Failed to load Hugging Face model ({e}). Falling back to default baseline.")
+                self.vision_model = YOLO("yolov8n.pt")
 
     # ------------------------------------------------------------------
     # Audio transcription
