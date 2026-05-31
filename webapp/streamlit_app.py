@@ -3,16 +3,6 @@
 #
 # Run with:
 #   streamlit run webapp/streamlit_app.py
-
-import torch
-try:
-    import torch.serialization
-    torch.serialization.add_safe_globals([
-        'ultralytics.nn.tasks.DetectionModel', 
-        'ultralytics.nn.tasks.SegmentationModel'
-    ])
-except Exception:
-    pass
     
 import streamlit as st
 import tempfile
