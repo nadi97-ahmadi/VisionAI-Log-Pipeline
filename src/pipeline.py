@@ -36,17 +36,16 @@ class InspectionPipeline:
         print("      ✓ Whisper ready")
 
     def _load_yolo(self):
-        print("[2/3] Loading PCB defect model from Hugging Face (downloads ~6 MB on first run)...")
-        # Downloads and caches best.pt locally — only downloads once
-        model_path = hf_hub_download(
-            repo_id="keremberke/yolov8n-pcb-defect-segmentation",
-            filename="best.pt"
-        )
-        self.vision_model = YOLO(model_path)
-        self.vision_model.overrides['conf'] = self.confidence_threshold
-        self.vision_model.overrides['iou']  = 0.45
-        print("      ✓ PCB defect model ready")
-        print(f"      ✓ Classes: {list(self.vision_model.names.values())}")
+    print("[2/3] Loading PCB defect model from Hugging Face (downloads ~6 MB on first run)...")
+    model_path = hf_hub_download(
+        repo_id="keremberke/yolov8n-pcb-defect-segmentation",
+        filename="best.pt"
+    )
+    self.vision_model = YOLO(model_path)
+    self.vision_model.overrides['conf'] = 0.20
+    self.vision_model.overrides['iou']  = 0.45
+    print("      ✓ PCB defect model ready")
+    print(f"      ✓ Classes: {list(self.vision_model.names.values())}")
 
     # ------------------------------------------------------------------
     # Audio transcription
