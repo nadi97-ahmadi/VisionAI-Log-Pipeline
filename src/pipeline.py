@@ -3,6 +3,7 @@
 #   - Audio  → Whisper Tiny (CPU) → text transcript with timestamps
 #   - Video  → YOLOv8 PCB Defect Segmentation (Hugging Face / CPU) → detected defects + annotated frames
 import cv2
+import os
 import whisper
 import datetime
 from pathlib import Path
