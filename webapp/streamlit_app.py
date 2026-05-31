@@ -1,6 +1,5 @@
 # webapp/streamlit_app.py
 # VisionLog — Streamlit Web App
-#
 # Run with:
 #   streamlit run webapp/streamlit_app.py
 
@@ -8,17 +7,23 @@ import sys
 import os
 from pathlib import Path
 
-# ── fix path FIRST before any src imports ─────────────────────────────────────
-root = str(Path(__file__).parent.parent.resolve())
-if root not in sys.path:
-    sys.path.insert(0, root)
+# ── fix path FIRST before any src imports 
+sys.path.insert(0, os.getcwd())
+sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+sys.path.insert(0, '/mount/src/pipeline')
 
 import streamlit as st
 import tempfile
 import base64
 import datetime
-from src.pipeline import InspectionPipeline
-from src.report_generator import ReportGenerator
+
+try:
+    from src.pipeline import InspectionPipeline
+    from src.report_generator import ReportGenerator
+except ModuleNotFoundError as e:
+    import streamlit as st
+    st.error(f"Import error: {e} | cwd: {os.getcwd()} | sys.path: {sys.path}")
+    st.stop()
 
 # ── must be first streamlit call ──────────────────────────────────────────────
 st.set_page_config(
