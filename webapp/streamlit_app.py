@@ -2,27 +2,20 @@
 # VisionLog — Streamlit Web App
 # Run with:
 #   streamlit run webapp/streamlit_app.py
-
 import sys
 import os
-from pathlib import Path
+sys.path.insert(0, '/mount/src/visionai-log-pipeline')
 
-# ── fix path FIRST before any src imports 
-sys.path.insert(0, os.getcwd())
-sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
-sys.path.insert(0, '/mount/src/pipeline')
-
+# DEBUG — remove after fixing
 import streamlit as st
 import tempfile
 import base64
 import datetime
-
 try:
     from src.pipeline import InspectionPipeline
     from src.report_generator import ReportGenerator
-except ModuleNotFoundError as e:
-    import streamlit as st
-    st.error(f"Import error: {e} | cwd: {os.getcwd()} | sys.path: {sys.path}")
+except Exception as e:
+    st.error(f"REAL ERROR: {type(e).__name__}: {e}")
     st.stop()
 
 # ── must be first streamlit call ──────────────────────────────────────────────
