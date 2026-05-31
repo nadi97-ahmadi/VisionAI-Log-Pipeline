@@ -3,3 +3,5 @@ streamlit>=1.35.0
 ultralytics
 openai-whisper
 pymupdf
+ultralyticsplus
+huggingface_hub
