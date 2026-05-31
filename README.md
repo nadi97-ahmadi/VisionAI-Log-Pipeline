@@ -10,11 +10,11 @@ Upload a video and an audio note, and the app returns detected defects with conf
 
 ## Demo
 
-> 🔗 **Live app:** [add your Streamlit Cloud URL here]
+> 🔗 **Live app:** https://visionai-log-pipeline-5vbsxodldfskvejatmuwxf.streamlit.app/
 >
-> 🎥 **Walkthrough video:** [add a link to your screen recording here]
+> 🎥 **Walkthrough video:** 
 
-*(Add 2–3 screenshots here: the upload screen, the detection table, and the annotated frames.)*
+https://github.com/user-attachments/assets/1a36810d-a289-4f29-adca-70d7e3e04708
 
 ---
 
