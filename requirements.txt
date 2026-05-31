@@ -5,6 +5,6 @@ pymupdf
 torch
 torchvision
 torchaudio
-streamlit>=1.35.0
+streamlit
 ultralyticsplus
 huggingface_hub
