@@ -9,6 +9,7 @@ import tempfile
 import base64
 import time
 import os
+import sys
 from pathlib import Path
 
 # ── must be first streamlit call ──────────────────────────────────────────────
@@ -20,8 +21,8 @@ st.set_page_config(
 )
 
 # ── import pipeline (lives in src/) ──────────────────────────────────────────
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.pipeline import InspectionPipeline
 from src.report_generator import ReportGenerator
 
