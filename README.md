@@ -14,7 +14,7 @@ Upload a video and an audio note, and the app returns detected defects with conf
 >
 > 🎥 **Walkthrough video:** 
 
-https://github.com/user-attachments/assets/1a36810d-a289-4f29-adca-70d7e3e04708
+https://github.com/user-attachments/assets/d0f461d0-4d1f-4887-b897-c0717d732289
 
 ---
 
