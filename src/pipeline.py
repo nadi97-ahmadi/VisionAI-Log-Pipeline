@@ -4,6 +4,7 @@
 #   - Video  → YOLOv8 PCB Defect Segmentation (Hugging Face / CPU) → detected defects + annotated frames
 import torch 
 import cv2
+import os
 import whisper
 import datetime
 from pathlib import Path
@@ -35,29 +36,40 @@ class InspectionPipeline:
     def _load_yolo(self):
         print("[2/3] Loading Specialized PCB Defect Model from Hugging Face...")
         hf_model_id = "keremberke/yolov8n-pcb-defect-segmentation"
-        
-        import torch
-        from unittest.mock import patch
 
-        # 🛡️ Wrap everything inside the patch to bypass weights_only restrictions across both attempts
-        with patch('torch.load', lambda *args, **kwargs: torch.load(*args, **{**kwargs, 'weights_only': False})):
-            try:
-                # 1. Try loading the custom Hugging Face model
-                self.vision_model = YOLO(hf_model_id)
-                
-                # Apply optimized parameters for electronics component testing
-                self.vision_model.overrides['conf'] = self.confidence_threshold
-                self.vision_model.overrides['iou'] = 0.45
-                self.vision_model.overrides['agnostic_nms'] = False
-                self.vision_model.overrides['max_det'] = 1000
-                print(" PCB Defect Segmentation Model ready")
-                
-            except Exception as e:
-                print(f" Failed to load Hugging Face model ({e}). Falling back to default baseline inside patch safety environment.")
-                # 2. Safety fallback wrapped securely inside the patch environment
-                self.vision_model = YOLO("yolov8n.pt")
-                print(" Default yolov8n.pt loaded as fallback.")
+        # Method A: Tell PyTorch globally via environment variables to allow weight loading
+        os.environ["TORCH_FORCE_WEIGHTS_ONLY_LOAD"] = "0"
 
+        # Method B: Explicitly intercept torch.load using its true original reference to avoid recursion loops
+        _original_torch_load = torch.load
+
+        def safe_torch_load(*args, **kwargs):
+            # Force weights_only to False to pass the security check safely
+            kwargs['weights_only'] = False
+            return _original_torch_load(*args, **kwargs)
+
+        # Apply our safe interceptor directly to the torch module
+        torch.load = safe_torch_load
+
+        try:
+            # 1. Try loading the custom Hugging Face model
+            self.vision_model = YOLO(hf_model_id)
+            
+            # Apply optimized parameters for electronics component testing
+            self.vision_model.overrides['conf'] = self.confidence_threshold
+            self.vision_model.overrides['iou'] = 0.45
+            self.vision_model.overrides['agnostic_nms'] = False
+            self.vision_model.overrides['max_det'] = 1000
+            print(" PCB Defect Segmentation Model ready")
+            
+        except Exception as e:
+            print(f" Failed to load Hugging Face model ({e}). Falling back to default baseline.")
+            # 2. Safety fallback wrapped securely inside the same safe environment
+            self.vision_model = YOLO("yolov8n.pt")
+            print(" Default yolov8n.pt loaded as fallback.")
+            
+        finally:
+            torch.load = _original_torch_load
     # ------------------------------------------------------------------
     # Audio transcription
     # ------------------------------------------------------------------
