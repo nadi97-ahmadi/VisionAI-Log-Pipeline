@@ -2,7 +2,7 @@
 # Handles:
 #   - Audio  → Whisper Tiny (CPU) → text transcript with timestamps
 #   - Video  → YOLOv8 PCB Defect Segmentation (Hugging Face / CPU) → detected defects + annotated frames
-
+import torch 
 import cv2
 import whisper
 import datetime
@@ -11,20 +11,21 @@ from ultralytics import YOLO
 
 
 class InspectionPipeline:
-    """
-    Multimodal AI pipeline.
-
-    Audio layer : openai-whisper (tiny model, CPU)
-    Vision layer: YOLOv8 PCB Defect Segmentation via Hugging Face (CPU)
-
-    Works on any electronics / embedded system inspection video — custom PCBs,
-    motherboards, development platforms like the Nucleo STM32 F401RE, etc.
-    """
-
     def __init__(self, confidence_threshold: float = 0.25):
         self.confidence_threshold = confidence_threshold
         self.whisper_model = None
         self.vision_model = None
+        
+        try:
+            import torch.serialization
+            # Allow both standard detection and segment models to load safely
+            torch.serialization.add_safe_globals([
+                'ultralytics.nn.tasks.DetectionModel', 
+                'ultralytics.nn.tasks.SegmentationModel'
+            ])
+            print("PyTorch safe globals updated successfully.")
+        except AttributeError:
+            pass
 
     # ------------------------------------------------------------------
     # Internal: model loading
