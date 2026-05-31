@@ -43,9 +43,10 @@ class InspectionPipeline:
         import torch
         from unittest.mock import patch
 
-        # Force torch.load to bypass weights_only restrictions temporarily during model initialization
+        # 🛡️ Wrap everything inside the patch to bypass weights_only restrictions across both attempts
         with patch('torch.load', lambda *args, **kwargs: torch.load(*args, **{**kwargs, 'weights_only': False})):
             try:
+                # 1. Try loading the custom Hugging Face model
                 self.vision_model = YOLO(hf_model_id)
                 
                 # Apply optimized parameters for electronics component testing
@@ -54,9 +55,12 @@ class InspectionPipeline:
                 self.vision_model.overrides['agnostic_nms'] = False
                 self.vision_model.overrides['max_det'] = 1000
                 print(" PCB Defect Segmentation Model ready")
+                
             except Exception as e:
-                print(f" Failed to load Hugging Face model ({e}). Falling back to default baseline.")
+                print(f" Failed to load Hugging Face model ({e}). Falling back to default baseline inside patch safety environment.")
+                # 2. Safety fallback wrapped securely inside the patch environment
                 self.vision_model = YOLO("yolov8n.pt")
+                print(" Default yolov8n.pt loaded as fallback.")
 
     # ------------------------------------------------------------------
     # Audio transcription
