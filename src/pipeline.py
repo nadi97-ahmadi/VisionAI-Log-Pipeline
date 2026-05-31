@@ -1,7 +1,7 @@
 # src/pipeline.py
 # Handles:
 #   - Audio  → Whisper Tiny (CPU) → text transcript with timestamps
-#   - Video  → YOLOv8 Nano (CPU)  → detected objects + annotated frames
+#   - Video  → YOLOv8 PCB Defect Segmentation (Hugging Face / CPU) → detected defects + annotated frames
 
 import cv2
 import whisper
@@ -15,13 +15,13 @@ class InspectionPipeline:
     Multimodal AI pipeline.
 
     Audio layer : openai-whisper (tiny model, CPU)
-    Vision layer: ultralytics YOLOv8 Nano (CPU)
+    Vision layer: YOLOv8 PCB Defect Segmentation via Hugging Face (CPU)
 
-    Works on any inspection video — pipes, roofs, walls,
-    car damage, construction sites, electrical panels, etc.
+    Works on any electronics / embedded system inspection video — custom PCBs,
+    motherboards, development platforms like the Nucleo STM32 F401RE, etc.
     """
 
-    def __init__(self, confidence_threshold: float = 0.40):
+    def __init__(self, confidence_threshold: float = 0.25):
         self.confidence_threshold = confidence_threshold
         self.whisper_model = None
         self.vision_model = None
@@ -36,9 +36,23 @@ class InspectionPipeline:
         print("      ✓ Whisper ready")
 
     def _load_yolo(self):
-        print("[2/3] Loading YOLOv8 Nano   (downloads ~6 MB on first run)...")
-        self.vision_model = YOLO("yolov8n.pt")
-        print("      ✓ YOLOv8 Nano ready")
+        print("[2/3] Loading Specialized PCB Defect Model from Hugging Face...")
+        hf_model_id = "keremberke/yolov8n-pcb-defect-segmentation"
+        
+        try:
+            # Ultralytics natively handles downloading directly via Hugging Face repo strings
+            self.vision_model = YOLO(hf_model_id)
+            
+            # Configure model detection parameter overrides
+            self.vision_model.overrides['conf'] = self.confidence_threshold
+            self.vision_model.overrides['iou'] = 0.45
+            self.vision_model.overrides['agnostic_nms'] = False
+            self.vision_model.overrides['max_det'] = 1000
+            
+            print("      ✓ PCB Defect Segmentation Model ready")
+        except Exception as e:
+            print(f"      ⚠️ Failed to load Hugging Face model ({e}). Falling back to default yolov8n.pt")
+            self.vision_model = YOLO("yolov8n.pt")
 
     # ------------------------------------------------------------------
     # Audio transcription
@@ -46,7 +60,7 @@ class InspectionPipeline:
 
     def transcribe_audio(self, audio_path: str) -> dict:
         """
-        Transcribe a .wav voice note to text.
+        Transcribe a voice note to text.
 
         Returns:
             {
@@ -87,12 +101,12 @@ class InspectionPipeline:
 
     def analyze_video(self, video_path: str) -> dict:
         """
-        Scan video frames with YOLOv8 Nano.
+        Scan video frames with the specialized PCB model.
 
         Strategy:
           - Skips every 10 frames for speed on CPU
-          - Saves up to 5 annotated frames where objects are detected
-          - Records timestamp, class name, and confidence per detection
+          - Saves up to 5 annotated frames where components or defect masks are detected
+          - Records timestamp, label name, and confidence per detection
         """
         print("      → Scanning video frames...")
 
@@ -137,7 +151,7 @@ class InspectionPipeline:
                     timestamp = round(frame_idx / fps, 1)
 
                     frame_path = f"output/frame_{frame_idx:06d}.jpg"
-                    annotated  = result.plot()
+                    annotated  = result.plot()  # Automatically renders bounding boxes or masks
                     cv2.imwrite(frame_path, annotated)
                     saved_frames.append(frame_path)
 
@@ -156,7 +170,7 @@ class InspectionPipeline:
 
         print(
             f"      ✓ Scanned {frame_idx} frames — "
-            f"{len(saved_frames)} anomaly frame(s) captured"
+            f"{len(saved_frames)} circuit board frame(s) captured"
         )
 
         return {
