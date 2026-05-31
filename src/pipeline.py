@@ -2,13 +2,12 @@
 # Handles:
 #   - Audio  → Whisper Tiny (CPU) → text transcript with timestamps
 #   - Video  → YOLOv8 PCB Defect Segmentation (Hugging Face / CPU) → detected defects + annotated frames
-import torch 
 import cv2
-import os
 import whisper
 import datetime
 from pathlib import Path
-from ultralytics import YOLO
+from ultralytics import YOLO  # Ensure it reads 'from ultralytics' (NOT ultralyticsplus)
+import torch
 
 
 class InspectionPipeline:
