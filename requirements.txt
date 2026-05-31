@@ -1,7 +1,10 @@
-opencv-python-headless
-streamlit>=1.35.0
-ultralytics
 openai-whisper
+ultralytics
+opencv-python
 pymupdf
+torch
+torchvision
+torchaudio
+streamlit>=1.35.0
 ultralyticsplus
 huggingface_hub
