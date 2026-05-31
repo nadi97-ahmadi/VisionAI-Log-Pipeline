@@ -1,6 +1,6 @@
 openai-whisper
 ultralytics
-opencv-python
+opencv-python-headless
 pymupdf
 torch
 torchvision
