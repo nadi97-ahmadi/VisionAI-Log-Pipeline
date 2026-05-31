@@ -1,22 +1,24 @@
 # src/pipeline.py
 # Handles:
 #   - Audio  → Whisper Tiny (CPU) → text transcript with timestamps
-#   - Video  → YOLOv8 PCB Defect Segmentation (Hugging Face / CPU) → detected defects + annotated frames
+#   - Video  → YOLOv8n PCB defect model from Hugging Face (CPU) → detected defects + annotated frames
+
 import cv2
-import os
 import whisper
 import datetime
 from pathlib import Path
-from ultralytics import YOLO  # Ensure it reads 'from ultralytics' (NOT ultralyticsplus)
-import torch
+from huggingface_hub import hf_hub_download
+from ultralytics import YOLO
 
 
 class InspectionPipeline:
     """
     Multimodal AI pipeline.
 
-    Audio layer: openai-whisper (tiny model, CPU)
-    Vision layer: YOLOv8 PCB Defect Segmentation via Hugging Face (CPU)
+    Audio layer : openai-whisper (tiny model, CPU)
+    Vision layer: YOLOv8n fine-tuned on PCB defects
+                  Labels: Dry_joint | Incorrect_installation |
+                          PCB_damage | Short_circuit
     """
 
     def __init__(self, confidence_threshold: float = 0.25):
@@ -34,42 +36,18 @@ class InspectionPipeline:
         print("      ✓ Whisper ready")
 
     def _load_yolo(self):
-        print("[2/3] Loading Specialized PCB Defect Model from Hugging Face...")
-        hf_model_id = "keremberke/yolov8n-pcb-defect-segmentation"
+        print("[2/3] Loading PCB defect model from Hugging Face (downloads ~6 MB on first run)...")
+        # Downloads and caches best.pt locally — only downloads once
+        model_path = hf_hub_download(
+            repo_id="keremberke/yolov8n-pcb-defect-segmentation",
+            filename="best.pt"
+        )
+        self.vision_model = YOLO(model_path)
+        self.vision_model.overrides['conf'] = self.confidence_threshold
+        self.vision_model.overrides['iou']  = 0.45
+        print("      ✓ PCB defect model ready")
+        print(f"      ✓ Classes: {list(self.vision_model.names.values())}")
 
-        # Method A: Tell PyTorch globally via environment variables to allow weight loading
-        os.environ["TORCH_FORCE_WEIGHTS_ONLY_LOAD"] = "0"
-
-        # Method B: Explicitly intercept torch.load using its true original reference to avoid recursion loops
-        _original_torch_load = torch.load
-
-        def safe_torch_load(*args, **kwargs):
-            # Force weights_only to False to pass the security check safely
-            kwargs['weights_only'] = False
-            return _original_torch_load(*args, **kwargs)
-
-        # Apply our safe interceptor directly to the torch module
-        torch.load = safe_torch_load
-
-        try:
-            # 1. Try loading the custom Hugging Face model
-            self.vision_model = YOLO(hf_model_id)
-            
-            # Apply optimized parameters for electronics component testing
-            self.vision_model.overrides['conf'] = self.confidence_threshold
-            self.vision_model.overrides['iou'] = 0.45
-            self.vision_model.overrides['agnostic_nms'] = False
-            self.vision_model.overrides['max_det'] = 1000
-            print(" PCB Defect Segmentation Model ready")
-            
-        except Exception as e:
-            print(f" Failed to load Hugging Face model ({e}). Falling back to default baseline.")
-            # 2. Safety fallback wrapped securely inside the same safe environment
-            self.vision_model = YOLO("yolov8n.pt")
-            print(" Default yolov8n.pt loaded as fallback.")
-            
-        finally:
-            torch.load = _original_torch_load
     # ------------------------------------------------------------------
     # Audio transcription
     # ------------------------------------------------------------------
@@ -89,19 +67,17 @@ class InspectionPipeline:
 
         result = self.whisper_model.transcribe(
             audio_path,
-            fp16=False,
+            fp16=False,       # CPU requires fp16=False
             verbose=False,
         )
 
         segments = []
         for seg in result.get("segments", []):
-            segments.append(
-                {
-                    "start": round(seg["start"], 1),
-                    "end":   round(seg["end"],   1),
-                    "text":  seg["text"].strip(),
-                }
-            )
+            segments.append({
+                "start": round(seg["start"], 1),
+                "end":   round(seg["end"],   1),
+                "text":  seg["text"].strip(),
+            })
 
         print(f"      ✓ Transcribed {len(segments)} segment(s)")
 
@@ -112,24 +88,32 @@ class InspectionPipeline:
         }
 
     # ------------------------------------------------------------------
-    # Video defect / object detection
+    # Video defect detection
     # ------------------------------------------------------------------
 
     def analyze_video(self, video_path: str) -> dict:
         """
-        Scan video frames with the specialized PCB model.
+        Scan video frames with the PCB defect model.
 
         Strategy:
           - Skips every 10 frames for speed on CPU
-          - Saves up to 5 annotated frames where components or defect masks are detected
-          - Records timestamp, label name, and confidence per detection
+          - Saves up to 5 annotated frames where defects are detected
+          - Records timestamp, defect class, and confidence per detection
+
+        Returns:
+            {
+              "total_frames": int,
+              "duration_sec": float,
+              "fps":          float,
+              "detections":   [...],
+              "saved_frames": [str, ...]
+            }
         """
-        print("      → Scanning video frames...")
+        print("      → Scanning video frames for PCB defects...")
 
         Path("output").mkdir(exist_ok=True)
 
-        cap = cv2.VideoCapture(video_path)
-
+        cap          = cv2.VideoCapture(video_path)
         fps          = cap.get(cv2.CAP_PROP_FPS) or 30.0
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         duration_sec = round(total_frames / fps, 1)
@@ -137,8 +121,8 @@ class InspectionPipeline:
         detections   = []
         saved_frames = []
         frame_idx    = 0
-        SKIP         = 10
-        MAX_CAPTURES = 5
+        SKIP         = 10   # process every 10th frame
+        MAX_CAPTURES = 5    # max annotated frames saved to disk
 
         while cap.isOpened() and len(saved_frames) < MAX_CAPTURES:
             ret, frame = cap.read()
@@ -146,7 +130,6 @@ class InspectionPipeline:
                 break
 
             frame_idx += 1
-
             if frame_idx % SKIP != 0:
                 continue
 
@@ -158,7 +141,6 @@ class InspectionPipeline:
 
                 for box in result.boxes:
                     conf = float(box.conf[0])
-
                     if conf < self.confidence_threshold:
                         continue
 
@@ -166,27 +148,26 @@ class InspectionPipeline:
                     cls_name  = self.vision_model.names[cls_id]
                     timestamp = round(frame_idx / fps, 1)
 
+                    # Save annotated frame with bounding boxes drawn
                     frame_path = f"output/frame_{frame_idx:06d}.jpg"
-                    annotated  = result.plot()  # Automatically renders bounding boxes or masks
+                    annotated  = result.plot()
                     cv2.imwrite(frame_path, annotated)
                     saved_frames.append(frame_path)
 
-                    detections.append(
-                        {
-                            "frame":         frame_idx,
-                            "timestamp_sec": timestamp,
-                            "class":         cls_name,
-                            "confidence":    round(conf, 3),
-                            "frame_path":    frame_path,
-                        }
-                    )
-                    break
+                    detections.append({
+                        "frame":         frame_idx,
+                        "timestamp_sec": timestamp,
+                        "class":         cls_name,
+                        "confidence":    round(conf, 3),
+                        "frame_path":    frame_path,
+                    })
+                    break  # one detection per sampled frame
 
         cap.release()
 
         print(
             f"      ✓ Scanned {frame_idx} frames — "
-            f"{len(saved_frames)} circuit board frame(s) captured"
+            f"{len(saved_frames)} defect frame(s) captured"
         )
 
         return {
